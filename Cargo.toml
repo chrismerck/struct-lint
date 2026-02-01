@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 gimli = "0.33"
 object = { version = "0.38", features = ["read"] }
 regex = "1"
+walkdir = "2"
