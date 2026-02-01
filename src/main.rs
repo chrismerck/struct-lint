@@ -90,10 +90,35 @@ fn make_relative(path: &str) -> String {
         .to_string()
 }
 
+fn collect_elf_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut elf_paths = Vec::new();
+    for path in paths {
+        if path.is_dir() {
+            for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+                let p = entry.into_path();
+                if let Some(ext) = p.extension() {
+                    if ext == "o" || ext == "elf" {
+                        elf_paths.push(p);
+                    }
+                }
+            }
+        } else {
+            elf_paths.push(path.clone());
+        }
+    }
+    elf_paths
+}
+
 fn main() {
     let cli = Cli::parse();
 
-    let path = cli.paths[0].to_str().unwrap();
+    let elf_paths = collect_elf_paths(&cli.paths);
+    if elf_paths.is_empty() {
+        eprintln!("No ELF files found in the specified paths.");
+        std::process::exit(2);
+    }
+
+    let path = elf_paths[0].to_str().unwrap();
     let data = fs::read(path).unwrap_or_else(|e| {
         eprintln!("Error reading {}: {}", path, e);
         std::process::exit(2);
