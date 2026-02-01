@@ -125,7 +125,7 @@ fn main() {
 
     // Phase 2: Analyze all files, accumulate deduplicated structs + issues
     // Key: struct name + member layout string, Value: (StructInfo, Vec<Issue>)
-    let mut global_structs: BTreeMap<String, (StructInfo, Vec<Issue>)> = BTreeMap::new();
+    let mut global_structs: BTreeMap<String, (StructInfo, Vec<Issue>, u64)> = BTreeMap::new();
     let mut file_count: usize = 0;
 
     for path in &elf_paths {
@@ -191,7 +191,7 @@ fn main() {
                 .entry(dedup_key)
                 .or_insert_with(|| {
                     let issues = issue_map.remove(&s.name).unwrap_or_default();
-                    (s, issues)
+                    (s, issues, max_align)
                 });
         }
     }
@@ -203,7 +203,7 @@ fn main() {
     let mut packing_issues = 0usize;
     let total_structs = global_structs.len();
 
-    for (_key, (s, issues)) in &global_structs {
+    for (_key, (s, issues, max_align)) in &global_structs {
         if !issues.is_empty() {
             structs_with_issues += 1;
             for issue in issues {
@@ -252,7 +252,7 @@ fn main() {
                 }
             }
         } else if cli.verbose {
-            let packed_str = if infer_packed(s, if s.size > 0 { 4 } else { 4 }) {
+            let packed_str = if infer_packed(s, *max_align) {
                 "packed, "
             } else {
                 ""
