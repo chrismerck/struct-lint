@@ -118,91 +118,113 @@ fn main() {
         std::process::exit(2);
     }
 
-    let path = elf_paths[0].to_str().unwrap();
-    let data = fs::read(path).unwrap_or_else(|e| {
-        eprintln!("Error reading {}: {}", path, e);
-        std::process::exit(2);
-    });
-    // Leak the data so we get a 'static lifetime for gimli's zero-copy parsing
-    let data: &'static [u8] = Box::leak(data.into_boxed_slice());
-
-    let obj = object::File::parse(data).unwrap_or_else(|e| {
-        eprintln!("Error parsing ELF {}: {}", path, e);
+    let pattern = regex::Regex::new(&cli.pattern).unwrap_or_else(|e| {
+        eprintln!("Invalid pattern '{}': {}", cli.pattern, e);
         std::process::exit(2);
     });
 
-    let is_64bit = obj.is_64();
-    let max_align: u64 = if is_64bit { 8 } else { 4 };
-    eprintln!(
-        "ELF: {}-bit, max natural alignment = {}",
-        if is_64bit { 64 } else { 32 },
-        max_align
-    );
+    // Phase 2: Analyze all files, accumulate deduplicated structs + issues
+    // Key: struct name + member layout string, Value: (StructInfo, Vec<Issue>)
+    let mut global_structs: BTreeMap<String, (StructInfo, Vec<Issue>)> = BTreeMap::new();
+    let mut _file_count: usize = 0;
 
-    let dwarf = gimli::Dwarf::load(|section_id| -> Result<R, gimli::Error> {
-        let data = obj
-            .section_by_name(section_id.name())
-            .map(|s| s.data().unwrap_or(&[]))
-            .unwrap_or(&[]);
-        Ok(EndianSlice::new(data, LittleEndian))
-    })
-    .unwrap();
+    for path in &elf_paths {
+        let data = match fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Warning: cannot read {}: {}", path.display(), e);
+                continue;
+            }
+        };
+        let data: &'static [u8] = Box::leak(data.into_boxed_slice());
 
-    let structs = extract_structs(&dwarf);
-    eprintln!("Found {} structs", structs.len());
+        let obj = match object::File::parse(data) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("Warning: cannot parse {}: {}", path.display(), e);
+                continue;
+            }
+        };
 
-    let issues = analyze_structs(&structs, max_align);
+        let max_align: u64 = if obj.is_64() { 8 } else { 4 };
 
-    if issues.is_empty() {
-        println!("No issues found in {} structs.", structs.len());
-    } else {
-        for issue in &issues {
+        let dwarf = match gimli::Dwarf::load(|section_id| -> Result<R, gimli::Error> {
+            let data = obj
+                .section_by_name(section_id.name())
+                .map(|s| s.data().unwrap_or(&[]))
+                .unwrap_or(&[]);
+            Ok(EndianSlice::new(data, LittleEndian))
+        }) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Warning: cannot load DWARF from {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        let structs = extract_structs(&dwarf);
+        let issues = analyze_structs(&structs, max_align, &pattern, cli.no_packed_check, cli.no_alignment_check);
+        _file_count += 1;
+
+        // Build issue map keyed by struct name for this file
+        let mut issue_map: HashMap<String, Vec<Issue>> = HashMap::new();
+        for issue in issues {
+            let key = match &issue {
+                Issue::MisalignedMember { struct_name, .. } => struct_name.clone(),
+                Issue::NotPacked { struct_name, .. } => struct_name.clone(),
+            };
+            issue_map.entry(key).or_default().push(issue);
+        }
+
+        // Merge into global map with dedup
+        for s in structs {
+            let dedup_key = format!(
+                "{}:{}",
+                s.name,
+                s.members
+                    .iter()
+                    .map(|m| format!("{}@{}", m.name, m.offset))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            global_structs
+                .entry(dedup_key)
+                .or_insert_with(|| {
+                    let issues = issue_map.remove(&s.name).unwrap_or_default();
+                    (s, issues)
+                });
+        }
+    }
+
+    // Phase 3: Report (placeholder - will be implemented in Task 5)
+    // For now, just print issues
+    let mut total_issues = 0usize;
+    for (_key, (_s, issues)) in &global_structs {
+        for issue in issues {
+            total_issues += 1;
             match issue {
                 Issue::MisalignedMember {
-                    struct_name,
-                    member_name,
-                    type_name,
-                    member_size,
-                    offset,
-                    natural_alignment,
-                    decl_file,
-                    decl_line,
+                    struct_name, member_name, type_name, member_size,
+                    offset, natural_alignment, decl_file, decl_line,
                 } => {
                     println!(
                         "{}:{}: {}.{} ({}, {} bytes) at offset {} not naturally aligned (needs {})",
-                        make_relative(decl_file),
-                        decl_line,
-                        struct_name,
-                        member_name,
-                        type_name,
-                        member_size,
-                        offset,
-                        natural_alignment,
+                        make_relative(decl_file), decl_line, struct_name, member_name,
+                        type_name, member_size, offset, natural_alignment,
                     );
                 }
                 Issue::NotPacked {
-                    struct_name,
-                    padding_bytes,
-                    pattern,
-                    decl_file,
-                    decl_line,
+                    struct_name, padding_bytes, pattern, decl_file, decl_line,
                 } => {
                     println!(
                         "{}:{}: {} is not packed ({} bytes padding, matches pattern '{}')",
-                        make_relative(decl_file),
-                        decl_line,
-                        struct_name,
-                        padding_bytes,
-                        pattern,
+                        make_relative(decl_file), decl_line, struct_name, padding_bytes, pattern,
                     );
                 }
             }
         }
-        println!(
-            "\n{} issues found in {} structs",
-            issues.len(),
-            structs.len()
-        );
+    }
+    if total_issues > 0 {
         std::process::exit(1);
     }
 }
@@ -519,14 +541,13 @@ fn get_file_name(
     }
 }
 
-fn analyze_structs(structs: &[StructInfo], max_align: u64) -> Vec<Issue> {
+fn analyze_structs(structs: &[StructInfo], max_align: u64, pattern: &regex::Regex, no_packed_check: bool, no_alignment_check: bool) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let pack_pattern = regex::Regex::new(r"_(rec|pkt(_\w+)?|header)_t$").ok();
 
     for s in structs {
         let is_packed = infer_packed(s, max_align);
 
-        if is_packed {
+        if is_packed && !no_alignment_check {
             for m in &s.members {
                 if m.is_bitfield || m.size == 0 || m.size == 1 {
                     continue;
@@ -545,15 +566,15 @@ fn analyze_structs(structs: &[StructInfo], max_align: u64) -> Vec<Issue> {
                     });
                 }
             }
-        } else if let Some(ref pat) = pack_pattern {
-            if pat.is_match(&s.name) {
+        } else if !is_packed && !no_packed_check {
+            if pattern.is_match(&s.name) {
                 let sum_sizes: u64 = s.members.iter().map(|m| m.size).sum();
                 let padding = s.size.saturating_sub(sum_sizes);
                 if padding > 0 {
                     issues.push(Issue::NotPacked {
                         struct_name: s.name.clone(),
                         padding_bytes: padding,
-                        pattern: pat.to_string(),
+                        pattern: pattern.to_string(),
                         decl_file: s.decl_file.clone(),
                         decl_line: s.decl_line,
                     });
