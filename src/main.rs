@@ -126,7 +126,7 @@ fn main() {
     // Phase 2: Analyze all files, accumulate deduplicated structs + issues
     // Key: struct name + member layout string, Value: (StructInfo, Vec<Issue>)
     let mut global_structs: BTreeMap<String, (StructInfo, Vec<Issue>)> = BTreeMap::new();
-    let mut _file_count: usize = 0;
+    let mut file_count: usize = 0;
 
     for path in &elf_paths {
         let data = match fs::read(path) {
@@ -164,7 +164,7 @@ fn main() {
 
         let structs = extract_structs(&dwarf);
         let issues = analyze_structs(&structs, max_align, &pattern, cli.no_packed_check, cli.no_alignment_check);
-        _file_count += 1;
+        file_count += 1;
 
         // Build issue map keyed by struct name for this file
         let mut issue_map: HashMap<String, Vec<Issue>> = HashMap::new();
@@ -196,34 +196,96 @@ fn main() {
         }
     }
 
-    // Phase 3: Report (placeholder - will be implemented in Task 5)
-    // For now, just print issues
+    // Phase 3: Report
     let mut total_issues = 0usize;
-    for (_key, (_s, issues)) in &global_structs {
-        for issue in issues {
-            total_issues += 1;
-            match issue {
-                Issue::MisalignedMember {
-                    struct_name, member_name, type_name, member_size,
-                    offset, natural_alignment, decl_file, decl_line,
-                } => {
-                    println!(
-                        "{}:{}: {}.{} ({}, {} bytes) at offset {} not naturally aligned (needs {})",
-                        make_relative(decl_file), decl_line, struct_name, member_name,
-                        type_name, member_size, offset, natural_alignment,
-                    );
-                }
-                Issue::NotPacked {
-                    struct_name, padding_bytes, pattern, decl_file, decl_line,
-                } => {
-                    println!(
-                        "{}:{}: {} is not packed ({} bytes padding, matches pattern '{}')",
-                        make_relative(decl_file), decl_line, struct_name, padding_bytes, pattern,
-                    );
+    let mut structs_with_issues = 0usize;
+    let mut alignment_issues = 0usize;
+    let mut packing_issues = 0usize;
+    let total_structs = global_structs.len();
+
+    for (_key, (s, issues)) in &global_structs {
+        if !issues.is_empty() {
+            structs_with_issues += 1;
+            for issue in issues {
+                total_issues += 1;
+                match issue {
+                    Issue::MisalignedMember {
+                        struct_name,
+                        member_name,
+                        type_name,
+                        member_size,
+                        offset,
+                        natural_alignment,
+                        decl_file,
+                        decl_line,
+                    } => {
+                        alignment_issues += 1;
+                        println!(
+                            "{}:{}: {}.{} ({}, {} bytes) at offset {} not naturally aligned (needs {})",
+                            make_relative(decl_file),
+                            decl_line,
+                            struct_name,
+                            member_name,
+                            type_name,
+                            member_size,
+                            offset,
+                            natural_alignment,
+                        );
+                    }
+                    Issue::NotPacked {
+                        struct_name,
+                        padding_bytes,
+                        pattern,
+                        decl_file,
+                        decl_line,
+                    } => {
+                        packing_issues += 1;
+                        println!(
+                            "{}:{}: {} is not packed ({} bytes padding, matches pattern '{}')",
+                            make_relative(decl_file),
+                            decl_line,
+                            struct_name,
+                            padding_bytes,
+                            pattern,
+                        );
+                    }
                 }
             }
+        } else if cli.verbose {
+            let packed_str = if infer_packed(s, if s.size > 0 { 4 } else { 4 }) {
+                "packed, "
+            } else {
+                ""
+            };
+            println!(
+                "{}:{}: {} ({} bytes, {}{} members) ok",
+                make_relative(&s.decl_file),
+                s.decl_line,
+                s.name,
+                s.size,
+                packed_str,
+                s.members.len(),
+            );
         }
     }
+
+    // Summary line
+    if !cli.quiet {
+        let file_word = if file_count == 1 { "file" } else { "files" };
+        if total_issues == 0 {
+            println!(
+                "No issues found in {} structs across {} {}",
+                total_structs, file_count, file_word,
+            );
+        } else {
+            println!(
+                "\n{} issues in {} structs across {} {} ({} alignment, {} missing pack)",
+                total_issues, structs_with_issues, file_count, file_word,
+                alignment_issues, packing_issues,
+            );
+        }
+    }
+
     if total_issues > 0 {
         std::process::exit(1);
     }
