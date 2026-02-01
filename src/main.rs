@@ -164,9 +164,31 @@ fn main() {
             }
         };
 
-        let structs = extract_structs(&dwarf);
-        let issues = analyze_structs(&structs, max_align, &pattern, cli.no_packed_check, cli.no_alignment_check);
+        let all_structs = extract_structs(&dwarf);
         file_count += 1;
+
+        // Dedup structs within this file before analysis (a linked ELF has
+        // multiple compilation units that each define the same header structs)
+        let mut seen_keys: HashMap<String, usize> = HashMap::new();
+        let mut structs = Vec::new();
+        for s in all_structs {
+            let dedup_key = format!(
+                "{}:{}",
+                s.name,
+                s.members
+                    .iter()
+                    .map(|m| format!("{}@{}", m.name, m.offset))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            if seen_keys.contains_key(&dedup_key) {
+                continue;
+            }
+            seen_keys.insert(dedup_key, structs.len());
+            structs.push(s);
+        }
+
+        let issues = analyze_structs(&structs, max_align, &pattern, cli.no_packed_check, cli.no_alignment_check);
 
         // Build issue map keyed by struct name for this file
         let mut issue_map: HashMap<String, Vec<Issue>> = HashMap::new();
@@ -178,22 +200,14 @@ fn main() {
             issue_map.entry(key).or_default().push(issue);
         }
 
-        // Merge into global map with dedup
-        for s in structs {
-            let dedup_key = format!(
-                "{}:{}",
-                s.name,
-                s.members
-                    .iter()
-                    .map(|m| format!("{}@{}", m.name, m.offset))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
+        // Merge into global map with cross-file dedup
+        for (dedup_key, idx) in &seen_keys {
+            let s = &structs[*idx];
             global_structs
-                .entry(dedup_key)
+                .entry(dedup_key.clone())
                 .or_insert_with(|| {
                     let issues = issue_map.remove(&s.name).unwrap_or_default();
-                    (s, issues, max_align)
+                    (s.clone(), issues, max_align)
                 });
         }
     }
