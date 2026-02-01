@@ -136,6 +136,8 @@ fn main() {
                 continue;
             }
         };
+        // TODO: Box::leak accumulates memory across files; acceptable for CLI but
+        // consider arena allocation if processing very large numbers of files
         let data: &'static [u8] = Box::leak(data.into_boxed_slice());
 
         let obj = match object::File::parse(data) {
@@ -387,26 +389,7 @@ fn extract_structs(dwarf: &gimli::Dwarf<R>) -> Vec<StructInfo> {
         }
     }
 
-    // Deduplicate by name + member layout
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    let mut deduped = Vec::new();
-    for s in structs {
-        let key = format!(
-            "{}:{}",
-            s.name,
-            s.members
-                .iter()
-                .map(|m| format!("{}@{}", m.name, m.offset))
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-        if seen.contains_key(&key) {
-            continue;
-        }
-        seen.insert(key, deduped.len());
-        deduped.push(s);
-    }
-    deduped
+    structs
 }
 
 fn extract_members(
