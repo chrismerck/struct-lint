@@ -1,0 +1,9 @@
+[package]
+name = "struct-lint"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gimli = "0.33"
+object = { version = "0.38", features = ["read"] }
+regex = "1"

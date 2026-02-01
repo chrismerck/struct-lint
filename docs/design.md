@@ -2,8 +2,8 @@
 
 ## Background
 
-Embedded firmware codebases like bond-core-2 use C structs extensively as
-record formats for network packets, flash storage, and protocol headers.
+Embedded firmware codebases use C structs extensively as record formats for
+network packets, flash storage, and protocol headers.
 These structs are typically packed with `#pragma pack(push, 1)` or
 `__attribute__((packed))` to ensure no hidden padding corrupts wire/disk
 formats.
@@ -125,9 +125,9 @@ EXIT CODES:
 Compiler-style diagnostics (text, default):
 
 ```
-proto/BondSync/BondSync_Common.h:42: bond_sync_pkt_t.seq (uint16_t, 2 bytes) at offset 1 not naturally aligned (needs 2)
-proto/BondSync/BondSync_Common.h:42: bond_sync_pkt_t.crc (uint32_t, 4 bytes) at offset 19 not naturally aligned (needs 4)
-feature/BFeature/BFeature_Internal.h:88: bfeature_rec_t is not packed (12 bytes padding, matches pattern '_rec_t$')
+proto/common/protocol.h:42: sync_pkt_t.seq (uint16_t, 2 bytes) at offset 1 not naturally aligned (needs 2)
+proto/common/protocol.h:42: sync_pkt_t.crc (uint32_t, 4 bytes) at offset 19 not naturally aligned (needs 4)
+feature/sensor/sensor_internal.h:88: sensor_rec_t is not packed (12 bytes padding, matches pattern '_rec_t$')
 
 3 issues found in 847 structs (2 alignment, 1 missing pack) across 312 ELF files
 ```
@@ -139,19 +139,19 @@ integration, using JSON Lines format (one object per issue).
 
 ```bash
 # Scan entire build directory
-struct-lint target/zermatt-pro/build/
+struct-lint build/
 
 # Check just one component
-struct-lint target/zermatt-pro/build/BFeature/
+struct-lint build/sensors/
 
 # Check specific files
-struct-lint target/zermatt-pro/build/BFeature/BFeature.o
+struct-lint build/sensors/sensor.o
 
 # Full project scan, quiet mode for CI
-struct-lint -q target/zermatt-pro/build/ || echo "alignment issues found"
+struct-lint -q build/ || echo "alignment issues found"
 
 # Custom patterns
-struct-lint -p '_frame_t$' -p '_wire_\w+_t$' target/
+struct-lint -p '_frame_t$' -p '_wire_\w+_t$' build/
 ```
 
 ## Claude Code Integration
