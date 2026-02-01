@@ -1,11 +1,14 @@
+use clap::Parser;
 use gimli::{
     AttributeValue, DebuggingInformationEntry, EndianSlice, LittleEndian, Unit, UnitOffset,
 };
 use object::{Object, ObjectSection};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 type R = EndianSlice<'static, LittleEndian>;
 
@@ -48,6 +51,36 @@ enum Issue {
     },
 }
 
+#[derive(Parser)]
+#[command(name = "struct-lint")]
+#[command(about = "Detect struct alignment issues in ELF binaries via DWARF debug info")]
+#[command(version)]
+struct Cli {
+    /// ELF files or directories to scan (recursive .o/.elf search)
+    #[arg(required = true)]
+    paths: Vec<PathBuf>,
+
+    /// Regex pattern for structs that should be packed
+    #[arg(short, long, default_value = r"_(rec|pkt(_\w+)?|header)_t$")]
+    pattern: String,
+
+    /// Suppress summary line, only print issues
+    #[arg(short, long)]
+    quiet: bool,
+
+    /// Also print structs that passed checks
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Skip "should be packed" detection
+    #[arg(long)]
+    no_packed_check: bool,
+
+    /// Skip misaligned member detection
+    #[arg(long)]
+    no_alignment_check: bool,
+}
+
 fn make_relative(path: &str) -> String {
     let cwd = env::current_dir().unwrap_or_default();
     let p = Path::new(path);
@@ -58,13 +91,9 @@ fn make_relative(path: &str) -> String {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: struct-lint <elf-file>");
-        std::process::exit(2);
-    }
+    let cli = Cli::parse();
 
-    let path = &args[1];
+    let path = cli.paths[0].to_str().unwrap();
     let data = fs::read(path).unwrap_or_else(|e| {
         eprintln!("Error reading {}: {}", path, e);
         std::process::exit(2);
