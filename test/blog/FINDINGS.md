@@ -100,10 +100,10 @@ three architectures.
 ```
 === struct-lint on rv32 objects ===
 ../../target/debug/struct-lint -v out/rv32/ || true
-sensor_reading.c/sensor_reading.c:37: timestamp (20 bytes, packed, 5 members) ok
+sensor_reading.c/sensor_reading.c:19: timestamp.timestamp (timestamp, 2 bytes) at offset 17 not naturally aligned (needs 2)
 Users/cmerck/src/chrismerck/struct-lint/test/blog:14: timestamp.timestamp (timestamp, 2 bytes) at offset 17 not naturally aligned (needs 2)
 Users/cmerck/src/chrismerck/struct-lint/test/blog:14: timestamp.timestamp (timestamp, 4 bytes) at offset 19 not naturally aligned (needs 4)
-sensor_reading.c/sensor_reading.c:37: timestamp.timestamp (timestamp, 2 bytes) at offset 17 not naturally aligned (needs 2)
+sensor_reading.c/sensor_reading.c:54: timestamp (24 bytes, 5 members) ok
 
 3 issues in 2 structs across 2 files (3 alignment, 0 missing pack)
 
