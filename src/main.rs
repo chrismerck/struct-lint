@@ -663,6 +663,29 @@ fn infer_packed(s: &StructInfo, max_align: u64) -> bool {
         return true;
     }
 
+    // packed + aligned(N): members are tightly packed (has_alignment_violation)
+    // but the struct has trailing padding to satisfy an alignment attribute.
+    // Detect this by checking if struct size is sum_sizes rounded up to a
+    // power-of-two boundary.
+    if has_alignment_violation && s.size > sum_sizes {
+        // Check if s.size is sum_sizes rounded up to some power-of-2 alignment
+        // (the alignment attr value). We try alignments 2,4,8,16,...
+        let mut align = 2u64;
+        while align <= 128 {
+            let rounded = (sum_sizes + align - 1) & !(align - 1);
+            if rounded == s.size {
+                return true;
+            }
+            align <<= 1;
+        }
+        // Also accept if the trailing pad is small (< max_align) — heuristic
+        // for unusual alignment values
+        let trail = s.size - sum_sizes;
+        if trail < max_align {
+            return true;
+        }
+    }
+
     if s.size == sum_sizes && sum_sizes > 0 {
         let mut expected_offset: u64 = 0;
         let mut would_need_padding = false;
