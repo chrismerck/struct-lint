@@ -52,6 +52,7 @@ Exit codes: 0 = no issues, 1 = issues found, 2 = error.
 -q, --quiet             Suppress summary line
 --no-packed-check       Skip "should be packed" detection
 --no-alignment-check    Skip misaligned member detection
+-m, --max-align <N>     Override maximum alignment boundary in bytes (default: 4 for 32-bit, 8 for 64-bit ELF)
 ```
 
 ### Custom patterns
@@ -70,7 +71,7 @@ struct-lint reads ELF binaries using `gimli` for zero-copy DWARF parsing. It doe
 2. For packed structs: check if each member's offset is naturally aligned (`offset % min(member_size, arch_max_align) == 0`)
 3. For structs matching the name pattern: check if `sizeof(struct)` equals the sum of member sizes (i.e. no padding)
 
-Natural alignment uses the ELF header to determine the architecture's maximum alignment (4 for 32-bit, 8 for 64-bit).
+Natural alignment uses the ELF header to determine the architecture's maximum alignment (4 for 32-bit, 8 for 64-bit), overridable with `--max-align`.
 
 ## License
 

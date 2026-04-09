@@ -79,6 +79,10 @@ struct Cli {
     /// Skip misaligned member detection
     #[arg(long)]
     no_alignment_check: bool,
+
+    /// Maximum alignment boundary in bytes (default: 4 for 32-bit, 8 for 64-bit ELF).
+    #[arg(short, long)]
+    max_align: Option<u64>,
 }
 
 fn make_relative(path: &str) -> String {
@@ -148,7 +152,7 @@ fn main() {
             }
         };
 
-        let max_align: u64 = if obj.is_64() { 8 } else { 4 };
+        let max_align = cli.max_align.unwrap_or(if obj.is_64() { 8 } else { 4 });
 
         let dwarf = match gimli::Dwarf::load(|section_id| -> Result<R, gimli::Error> {
             let data = obj
